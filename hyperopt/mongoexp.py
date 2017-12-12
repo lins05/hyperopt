@@ -96,6 +96,7 @@ import copy
 import six.moves.cPickle as pickle
 # import hashlib
 import logging
+import multiprocessing
 import optparse
 import os
 # import shutil
@@ -1162,6 +1163,8 @@ def as_mongo_str(s):
     else:
         return 'mongo://%s' % s
 
+def is_daemon():
+    return multiprocessing.current_process().daemon
 
 def main_worker_helper(options, args):
     N = int(options.max_jobs)
@@ -1171,7 +1174,7 @@ def main_worker_helper(options, args):
         last_job_timeout = None
 
     def sighandler_shutdown(signum, frame):
-        logger.info('Caught signal %i, shutting down.' % signum)
+        logger.info('(is_daemon = %s) Caught signal %i, shutting down.' % (is_daemon(), signum))
         raise Shutdown(signum)
 
     def sighandler_wait_quit(signum, frame):
@@ -1212,6 +1215,8 @@ def main_worker_helper(options, args):
                 proc = None
 
             except Shutdown:
+                if is_daemon():
+                    return 0
                 # this is the normal way to stop the infinite loop (if originally N=-1)
                 if proc:
                     # proc.terminate() is only available as of 2.6
@@ -1221,6 +1226,8 @@ def main_worker_helper(options, args):
                     return 0
 
             except WaitQuit:
+                if is_daemon():
+                    return 0
                 # -- sending SIGUSR1 to a looping process will cause it to
                 # break out of the loop after the current subprocess finishes
                 # normally.
