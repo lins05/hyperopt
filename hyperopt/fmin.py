@@ -119,10 +119,11 @@ class FMinIter(object):
                 return self.trials.count_by_state_unsynced(unfinished_states)
 
             qlen = get_queue_len()
+            last_printed = None
             while qlen > 0:
-                if not already_printed:
+                if qlen != last_printed:
                     logger.info('Waiting for %d jobs to finish ...' % qlen)
-                    already_printed = True
+                    last_printed = qlen
                 time.sleep(self.poll_interval_secs)
                 qlen = get_queue_len()
             self.trials.refresh()

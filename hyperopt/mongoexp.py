@@ -481,7 +481,8 @@ class MongoJobs(object):
     def refresh(self, doc):
         self.update(doc, dict(refresh_time=coarse_utcnow()))
 
-    def update(self, doc, dct, collection=None, do_sanity_checks=True):
+    # def update(self, doc, dct, collection=None, do_sanity_checks=True):
+    def update(self, doc, dct, collection=None, do_sanity_checks=False):
         """Return union of doc and dct, after making sure that dct has been
         added to doc in `collection`.
 
@@ -971,7 +972,7 @@ class MongoWorker(object):
                  poll_interval=poll_interval,
                  workdir=workdir,
                  exp_key=None,
-                 logfilename='logfile.txt',
+                 logfilename=None
                  ):
         """
         mj - MongoJobs interface to jobs collection
@@ -984,6 +985,7 @@ class MongoWorker(object):
         self.workdir = workdir
         self.exp_key = exp_key
         self.logfilename = logfilename
+        self.idle_count = 0
 
     def make_log_handler(self):
         self.log_handler = logging.FileHandler(self.logfilename)
@@ -1011,7 +1013,9 @@ class MongoWorker(object):
                 interval = (1 +
                             numpy.random.rand() *
                             (float(self.poll_interval) - 1.0))
-                logger.info('no job found, sleeping for %.1fs' % interval)
+                if self.idle_count % 20 == 0:
+                    logger.info('no job found, sleeping for %.1fs' % interval)
+                self.idle_count += 1
                 time.sleep(interval)
 
         logger.debug('job found: %s' % str(job))
@@ -1174,8 +1178,11 @@ def main_worker_helper(options, args):
         last_job_timeout = None
 
     def sighandler_shutdown(signum, frame):
-        logger.info('(is_daemon = %s) Caught signal %i, shutting down.' % (is_daemon(), signum))
-        raise Shutdown(signum)
+        if is_daemon():
+            sys.exit(0)
+        else:
+            logger.info('(is_daemon = %s) Caught signal %i, shutting down.' % (is_daemon(), signum))
+            raise Shutdown(signum)
 
     def sighandler_wait_quit(signum, frame):
         logger.info('Caught signal %i, shutting down.' % signum)
@@ -1249,11 +1256,18 @@ def main_worker_helper(options, args):
         mj = MongoJobs.new_from_connection_str(
             as_mongo_str(options.mongo) + '/jobs')
 
-        mworker = MongoWorker(mj,
-                              float(options.poll_interval),
-                              workdir=options.workdir,
-                              exp_key=options.exp_key)
-        mworker.run_one(reserve_timeout=float(options.reserve_timeout))
+        logger.info('Running forver for better performance')
+        while True:
+            try:
+                mworker = MongoWorker(mj,
+                                    float(options.poll_interval),
+                                    workdir=options.workdir,
+                                    exp_key=options.exp_key)
+                mworker.run_one(reserve_timeout=float(options.reserve_timeout), erase_created_workdir=True)
+            except (Shutdown, SystemExit):
+                return 0
+            except:
+                logger.exception('error when running job')
     else:
         raise ValueError("N <= 0")
 
@@ -1287,12 +1301,12 @@ def main_worker():
     parser.add_option("--poll-interval",
                       dest='poll_interval',
                       metavar='N',
-                      default=5,
+                      default=1,
                       help="check work queue every 1 < T < N seconds (default: 5")
     parser.add_option("--reserve-timeout",
                       dest='reserve_timeout',
                       metavar='T',
-                      default=120.0,
+                      default=120.0 * 100000,
                       help="poll database for up to T seconds to reserve a job")
     parser.add_option("--workdir",
                       dest="workdir",
@@ -1306,4 +1320,21 @@ def main_worker():
         parser.print_help()
         return -1
 
+    setup_logging()
+
     return main_worker_helper(options, args)
+
+def setup_logging(debug=False):
+    kw = {
+        # 'format': '[%(asctime)s][%(pathname)s]: %(message)s',
+        'format': '[%(asctime)s][%(module)s]: %(message)s',
+        'datefmt': '%Y/%m/%d %H:%M:%S',
+        'level': logging.DEBUG if debug else logging.INFO,
+        'stream': sys.stdout
+    }
+    logging.basicConfig(**kw)
+    logging.getLogger('urllib3.connectionpool').setLevel(logging.WARNING)
+    logging.getLogger('requests.packages.urllib3.connectionpool').setLevel(
+        logging.WARNING)
+    global logger
+    logger = logging.getLogger(__name__)
