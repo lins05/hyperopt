@@ -1013,12 +1013,14 @@ class MongoWorker(object):
                 interval = (1 +
                             numpy.random.rand() *
                             (float(self.poll_interval) - 1.0))
+                interval = 0.05
                 if self.idle_count % 20 == 0:
                     logger.info('no job found, sleeping for %.1fs' % interval)
                 self.idle_count += 1
                 time.sleep(interval)
 
         logger.debug('job found: %s' % str(job))
+        logger.info('job started: %s' % str(job['_id']))
 
         # -- don't let the cmd mess up our trial object
         spec = spec_from_misc(job['misc'])

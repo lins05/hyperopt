@@ -54,7 +54,7 @@ class FMinIter(object):
 
     def __init__(self, algo, domain, trials, rstate, async=None,
                  max_queue_len=1,
-                 poll_interval_secs=1.0,
+                 poll_interval_secs=0.05,
                  max_evals=sys.maxsize,
                  verbose=0,
                  ):
